@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -19,9 +20,21 @@ struct Cli {
 }
 
 fn compute_hash(path: &PathBuf) -> io::Result<String> {
-    let mut file = fs::File::open(path)?;
+    use std::io::BufReader;
+
+    let file = fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
     let hash = hasher.finalize();
     Ok(format!("{:x}", hash))
 }
