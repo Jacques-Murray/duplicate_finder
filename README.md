@@ -18,7 +18,7 @@ To use the Duplicate File Finder, you need to have Rust and Cargo installed. You
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/Jacques-Murray/duplicate-finder.git
+   git clone https://github.com/your-username/duplicate-finder.git
    cd duplicate-finder
    ```
 

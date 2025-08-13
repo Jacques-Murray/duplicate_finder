@@ -282,10 +282,10 @@ mod tests {
         // Verify that the correct files are identified as duplicates.
         let mut file_names: Vec<_> = files
             .iter()
-            .map(|p| p.file_name().unwrap())
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
             .collect();
         file_names.sort();
-        assert_eq!(&*file_names, &["file1.txt", "file3.txt", "file5.txt"]);
+        assert_eq!(file_names, vec!["file1.txt", "file3.txt", "file5.txt"]);
     }
 
     #[test]
