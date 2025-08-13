@@ -88,8 +88,8 @@ fn main() {
     let cli = Cli::parse();
 
     if !cli.path.is_dir() {
-        eprint!("Error: Provided path is not a directory.");
-        return;
+        eprintln!("Error: Provided path is not a directory.");
+        std::process::exit(1);
     }
 
     println!("Scanning directory: {}", cli.path.display());
