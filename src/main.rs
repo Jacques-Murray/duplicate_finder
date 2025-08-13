@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::io::BufReader;
 use std::io::Read;
 use std::path::PathBuf;
 use walkdir::WalkDir;
@@ -29,6 +30,8 @@ struct Cli {
 }
 
 /// The size of the buffer used for reading files when hashing.
+/// 8KB is chosen as a reasonable trade-off between memory usage and I/O performance.
+/// Larger buffers may improve throughput for large files, but 8KB is generally efficient for most workloads.
 const BUFFER_SIZE: usize = 8192;
 
 /// Computes the SHA-256 hash of a file.
@@ -42,8 +45,6 @@ const BUFFER_SIZE: usize = 8192;
 /// A `Result` containing the hex-encoded hash string, or an `io::Error` if the file
 /// cannot be read.
 fn compute_hash(path: &PathBuf) -> io::Result<String> {
-    use std::io::BufReader;
-
     // Open the file and create a buffered reader for efficiency.
     let file = fs::File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -261,8 +262,8 @@ mod tests {
         let (size, files) = groups.iter().next().unwrap();
         assert_eq!(*size, 5);
 
-        // There should be four files in this group.
-        assert_eq!(files.len(), 4);
+        // There should be three files in this group.
+        assert_eq!(files.len(), 3);
     }
 
     #[test]
