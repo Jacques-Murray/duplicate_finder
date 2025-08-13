@@ -18,6 +18,7 @@ struct Cli {
     #[arg(required = true, value_name = "DIRECTORY")]
     path: PathBuf,
 }
+const BUFFER_SIZE: usize = 8192;
 
 fn compute_hash(path: &PathBuf) -> io::Result<String> {
     use std::io::BufReader;
@@ -25,7 +26,7 @@ fn compute_hash(path: &PathBuf) -> io::Result<String> {
     let file = fs::File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
+    let mut buffer = [0u8; BUFFER_SIZE];
 
     loop {
         let bytes_read = reader.read(&mut buffer)?;
@@ -69,7 +70,13 @@ fn find_duplicates(potential_duplicates: FileGroups) -> DuplicateGroups {
         .flat_map(|(_, files)| {
             files
                 .into_par_iter()
-                .filter_map(|path| compute_hash(&path).ok().map(|hash| (hash, path)))
+                .filter_map(|path| match compute_hash(&path) {
+                    Ok(hash) => Some((hash, path)),
+                    Err(e) => {
+                        eprintln!("Failed to hash file '{}': {}", path.display(), e);
+                        None
+                    }
+                })
         })
         .collect();
 
