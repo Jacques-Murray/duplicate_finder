@@ -189,3 +189,124 @@ fn main() {
     // Step 3: Print the results.
     print_duplicates(&duplicates);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    /// Creates a temporary directory with a set of files for testing.
+    ///
+    /// The directory will contain:
+    /// - `file1.txt` (content: "hello")
+    /// - `file2.txt` (content: "world")
+    /// - `file3.txt` (content: "hello") - a duplicate of file1.txt
+    /// - `file4.txt` (content: "different")
+    /// - a subdirectory `subdir` with `file5.txt` (content: "hello") - another duplicate
+    fn create_test_directory() -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+
+        // Create some files with duplicate content.
+        File::create(path.join("file1.txt"))
+            .unwrap()
+            .write_all(b"hello")
+            .unwrap();
+        File::create(path.join("file2.txt"))
+            .unwrap()
+            .write_all(b"world")
+            .unwrap();
+        File::create(path.join("file3.txt"))
+            .unwrap()
+            .write_all(b"hello")
+            .unwrap();
+        File::create(path.join("file4.txt"))
+            .unwrap()
+            .write_all(b"different")
+            .unwrap();
+
+        // Create a subdirectory with a duplicate file.
+        fs::create_dir(path.join("subdir")).unwrap();
+        File::create(path.join("subdir/file5.txt"))
+            .unwrap()
+            .write_all(b"hello")
+            .unwrap();
+
+        dir
+    }
+
+    #[test]
+    fn test_compute_hash() {
+        let dir = create_test_directory();
+        let path = dir.path().join("file1.txt");
+        let hash = compute_hash(&path).unwrap();
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn test_group_files_by_size() {
+        let dir = create_test_directory();
+        let path = dir.path().to_path_buf();
+        let groups = group_files_by_size(&path);
+
+        // There should be one group of files with the same size (the "hello" files).
+        assert_eq!(groups.len(), 1);
+
+        // The group should have a size of 5 bytes (the length of "hello").
+        let (size, files) = groups.iter().next().unwrap();
+        assert_eq!(*size, 5);
+
+        // There should be four files in this group.
+        assert_eq!(files.len(), 4);
+    }
+
+    #[test]
+    fn test_find_duplicates() {
+        let dir = create_test_directory();
+        let path = dir.path().to_path_buf();
+        let potential_duplicates = group_files_by_size(&path);
+        let duplicates = find_duplicates(potential_duplicates);
+
+        // There should be one set of duplicates.
+        assert_eq!(duplicates.len(), 1);
+
+        // The duplicate set should contain three files.
+        let (_, files) = duplicates.iter().next().unwrap();
+        assert_eq!(files.len(), 3);
+
+        // Verify that the correct files are identified as duplicates.
+        let mut file_names: Vec<_> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
+        file_names.sort();
+        assert_eq!(file_names, vec!["file1.txt", "file3.txt", "file5.txt"]);
+    }
+
+    #[test]
+    fn test_no_duplicates() {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+
+        // Create files with unique content.
+        File::create(path.join("file1.txt"))
+            .unwrap()
+            .write_all(b"one")
+            .unwrap();
+        File::create(path.join("file2.txt"))
+            .unwrap()
+            .write_all(b"two")
+            .unwrap();
+
+        let potential_duplicates = group_files_by_size(&path.to_path_buf());
+        let duplicates = find_duplicates(potential_duplicates);
+
+        // There should be no duplicates found.
+        assert!(duplicates.is_empty());
+    }
+}
