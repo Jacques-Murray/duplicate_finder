@@ -24,7 +24,7 @@ pub fn create_test_directory() -> TempDir {
         .unwrap();
     File::create(path.join("file2.txt"))
         .unwrap()
-        .write_all(b"world!!")
+        .write_all(b"world")
         .unwrap();
     File::create(path.join("file3.txt"))
         .unwrap()
