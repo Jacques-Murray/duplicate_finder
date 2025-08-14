@@ -8,7 +8,7 @@ fn test_interactive_delete_files() {
     let dir_path = dir.path().to_str().unwrap();
 
     let mut cmd = Command::cargo_bin("duplicate_finder").unwrap();
-    let input = "1 3\ny\n"; // Keep file 1 and 3, delete the others from the set.
+    let input = "1 3\ny\n"; // Keep file 1 and 3, delete file 5 from the set.
 
     cmd.arg(dir_path)
         .arg("--delete")
