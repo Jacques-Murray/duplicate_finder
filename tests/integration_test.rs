@@ -57,7 +57,7 @@ fn test_interactive_delete_all_from_set() {
     let dir_path = dir.path().to_str().unwrap();
 
     let mut cmd = Command::cargo_bin("duplicate_finder").unwrap();
-    let input = "none\ny\n"; // Keep no files from the set by providing non-numeric input.
+    let input = "\ny\n"; // Keep no files from the set by providing an empty input.
 
     cmd.arg(dir_path)
         .arg("--delete")
