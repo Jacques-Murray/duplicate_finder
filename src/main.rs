@@ -1,112 +1,144 @@
 use clap::Parser;
-use rayon::prelude::*;
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::fs;
-use std::io;
-use std::io::Read;
+use duplicate_finder::{find_duplicates, group_files_by_size, DuplicateGroups};
+use std::io::{self, Write};
 use std::path::PathBuf;
-use walkdir::WalkDir;
+use std::fs;
 
-type FileGroups = HashMap<u64, Vec<PathBuf>>;
-type DuplicateGroups = HashMap<String, Vec<PathBuf>>;
-
+/// Defines the command-line arguments for the application.
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// The directory to scan for duplicate files
+    /// The directory to scan for duplicate files.
     #[arg(required = true, value_name = "DIRECTORY")]
     path: PathBuf,
-}
-const BUFFER_SIZE: usize = 8192;
 
-fn compute_hash(path: &PathBuf) -> io::Result<String> {
-    use std::io::BufReader;
-
-    let file = fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; BUFFER_SIZE];
-
-    loop {
-        let bytes_read = reader.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
+    /// Interactively delete duplicate files.
+    #[arg(long)]
+    delete: bool,
 }
 
-fn group_files_by_size(path: &PathBuf) -> FileGroups {
-    let mut files_by_size: FileGroups = HashMap::new();
-
-    for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.len() > 0 {
-                    files_by_size
-                        .entry(metadata.len())
-                        .or_default()
-                        .push(entry.into_path());
-                }
-            }
-        }
-    }
-
-    files_by_size
-        .into_iter()
-        .filter(|(_, files)| files.len() > 1)
-        .collect()
-}
-
-fn find_duplicates(potential_duplicates: FileGroups) -> DuplicateGroups {
-    let mut duplicates: DuplicateGroups = HashMap::new();
-
-    let hash_results: Vec<_> = potential_duplicates
-        .into_par_iter()
-        .flat_map(|(_, files)| {
-            files
-                .into_par_iter()
-                .filter_map(|path| match compute_hash(&path) {
-                    Ok(hash) => Some((hash, path)),
-                    Err(e) => {
-                        eprintln!("Failed to hash file '{}': {}", path.display(), e);
-                        None
-                    }
-                })
-        })
-        .collect();
-
-    for (hash, path) in hash_results {
-        duplicates.entry(hash).or_default().push(path);
-    }
-
-    duplicates
-        .into_iter()
-        .filter(|(_, files)| files.len() > 1)
-        .collect()
-}
-
+/// Prints the identified duplicate files to the console.
+///
+/// # Arguments
+///
+/// * `duplicates` - A `DuplicateGroups` map containing the duplicate files.
 fn print_duplicates(duplicates: &DuplicateGroups) {
     if duplicates.is_empty() {
         println!("No duplicate files found.");
         return;
     }
 
+    // Print each set of duplicate files.
+    println!("Found {} sets of duplicate files.", duplicates.len());
     for (index, files) in duplicates.values().enumerate() {
-        println!("--- Duplicate Set {} ---", index + 1);
+        println!("\n--- Duplicate Set {} ---", index + 1);
         for path in files {
             println!("{}", path.display());
         }
     }
 }
 
+/// Interactively deletes duplicate files.
+///
+/// # Arguments
+///
+/// * `duplicates` - A `DuplicateGroups` map containing the duplicate files.
+fn interactive_delete(duplicates: &DuplicateGroups) {
+    if duplicates.is_empty() {
+        println!("No duplicate files found to delete.");
+        return;
+    }
+
+    println!("Found {} sets of duplicate files.", duplicates.len());
+    println!("Starting interactive deletion process...");
+
+    let mut total_deleted = 0;
+
+    for (index, files) in duplicates.values().enumerate() {
+        println!("\n--- Duplicate Set {} ---", index + 1);
+        for (i, path) in files.iter().enumerate() {
+            println!("[{}] {}", i + 1, path.display());
+        }
+
+        'set_loop: loop {
+            print!("Enter the numbers of files to KEEP (e.g., '1 3', 'all', or press Enter to skip): ");
+            io::stdout().flush().unwrap();
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim();
+
+            if input.is_empty() {
+                println!("Skipping this set.");
+                break 'set_loop;
+            }
+
+            let files_to_keep: Vec<usize> = if input.eq_ignore_ascii_case("all") {
+                (1..=files.len()).collect()
+            } else {
+                input
+                    .split_whitespace()
+                    .filter_map(|s| s.parse::<usize>().ok())
+                    .filter(|&n| n > 0 && n <= files.len())
+                    .collect()
+            };
+
+            let mut files_to_delete = Vec::new();
+            for (i, file_path) in files.iter().enumerate() {
+                if !files_to_keep.contains(&(i + 1)) {
+                    files_to_delete.push(file_path);
+                }
+            }
+
+            if files_to_delete.is_empty() {
+                println!("No files selected for deletion in this set.");
+                break 'set_loop;
+            }
+
+            println!("\nFiles to be DELETED:");
+            for path in &files_to_delete {
+                println!("- {}", path.display());
+            }
+
+            print!("Are you sure you want to delete these {} files? [y/N]: ", files_to_delete.len());
+            io::stdout().flush().unwrap();
+            let mut confirmation = String::new();
+            io::stdin().read_line(&mut confirmation).unwrap();
+
+            if confirmation.trim().eq_ignore_ascii_case("y") {
+                let mut deleted_count = 0;
+                for path in files_to_delete {
+                    match fs::remove_file(path) {
+                        Ok(_) => {
+                            println!("Deleted: {}", path.display());
+                            deleted_count += 1;
+                        }
+                        Err(e) => eprintln!("Error deleting {}: {}", path.display(), e),
+                    }
+                }
+                println!("Deleted {} files from this set.", deleted_count);
+                total_deleted += deleted_count;
+                break 'set_loop;
+            } else {
+                println!("Deletion cancelled for this set. Please re-enter your selection.");
+            }
+        }
+    }
+
+    if total_deleted > 0 {
+        println!("\nTotal files deleted: {}", total_deleted);
+    } else {
+        println!("\nNo files were deleted.");
+    }
+}
+
+
+/// The main entry point of the application.
 fn main() {
+    // Parse command-line arguments.
     let cli = Cli::parse();
 
+    // Ensure the provided path is a directory.
     if !cli.path.is_dir() {
         eprintln!("Error: Provided path is not a directory.");
         std::process::exit(1);
@@ -114,9 +146,16 @@ fn main() {
 
     println!("Scanning directory: {}", cli.path.display());
 
+    // Step 1: Group files by size to find potential duplicates.
     let potential_duplicates = group_files_by_size(&cli.path);
 
+    // Step 2: Hash the potential duplicates to find actual duplicates.
     let duplicates = find_duplicates(potential_duplicates);
 
-    print_duplicates(&duplicates);
+    // Step 3: Print results or start interactive deletion.
+    if cli.delete {
+        interactive_delete(&duplicates);
+    } else {
+        print_duplicates(&duplicates);
+    }
 }
